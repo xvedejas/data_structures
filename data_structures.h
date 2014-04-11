@@ -48,6 +48,7 @@ typedef struct
 } ArrayList;
 
 ArrayList *ArrayList_new();
+void *ArrayList_index(ArrayList *list, int index);
 // Use growby if you expect to need the additional capacity. Not necessary to
 // use since the list will resize itself as needed.
 void ArrayList_growby(ArrayList *list, int additional_capacity);
@@ -73,14 +74,20 @@ typedef struct bucket
 
 typedef struct
 {
-    bool stringkeys;
+    uint (*hash)(void*); // algorithm used to hash keys
+    bool (*comp)(void*, void*); // algorithm used to compare keys
     uint indexA;       // keeps track of how far we are in moving items from tableA
     uint sizeA, sizeB; // number of buckets occupied
     uint capA, capB;   // capacity: actual size of tables
     Bucket *tableA, *tableB; // "old" table and "new" table
 } Dict;
 
-Dict *Dict_new(bool stringkeys);
+uint stringhash(void *stringptr);
+uint ptrhash(void *ptr);
+bool stringcomp(void *str1, void*str2);
+bool ptrcomp(void *ptr1, void *ptr2);
+
+Dict *Dict_new(uint (*hash)(void*), bool (*comp)(void*,void*));
 bool Dict_has(Dict *dict, void *key);
 void *Dict_get(Dict *dict, void *key);
 void *Dict_remove(Dict *dict, void *key);
@@ -103,5 +110,7 @@ void StrBuilder_del(StrBuilder *sb);
 void StrBuilder_appendN(StrBuilder *sb, char *s, uint len);
 void StrBuilder_append(StrBuilder *sb, char *s);
 void StrBuilder_appendC(StrBuilder *sb, char c);
-// Note: tostring frees the StrBuilder and gives a string
+// join() will change the first strbuilder and not affect the other
+void StrBuilder_join(StrBuilder *sb1, StrBuilder *sb2);
+// tostring() frees the StrBuilder and returns a string
 char *StrBuilder_tostring(StrBuilder *sb);

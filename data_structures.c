@@ -40,7 +40,6 @@ void LinkedList_reverse(LinkedList *list)
 
 LinkedListElement *_LinkedList_index(LinkedList *list, int index)
 {
-    printf("index %i\n", index);
     int size = (int)list->size;
     if (index < 0) // handle negative indices
     {
@@ -51,7 +50,6 @@ LinkedListElement *_LinkedList_index(LinkedList *list, int index)
         return NULL;
     }
     int middle = size >> 1;
-    printf("index %i middle %i\n", index, middle);
     LinkedListElement *elem = list->first;
     int i;
     if (index < middle) // count up
@@ -176,19 +174,23 @@ void LinkedList_del(LinkedList *list)
 void LinkedList_test()
 {
     LinkedList *list = LinkedList_new();
+    // Test insert()
     LinkedList_insert(list, 0, (void*)1);
-    LinkedList_add(list, (void*)2);
-    LinkedList_add(list, (void*)3);
-    LinkedList_add(list, (void*)4);
-    LinkedList_add(list, (void*)5);
-    LinkedList_add(list, (void*)6);
-    CU_ASSERT(LinkedList_index(list, 0) == (void*)1);
-    CU_ASSERT(LinkedList_index(list, -1) == (void*)6);
-    CU_ASSERT(LinkedList_index(list, 5) == (void*)6);
+    LinkedList_insert(list, 0, (void*)2);
+    LinkedList_insert(list, 1, (void*)3);
+    LinkedList_insert(list, 1, (void*)4);
+    LinkedList_insert(list, 1, (void*)5);
+    LinkedList_insert(list, 1, (void*)6);
+    // Test index()
+    CU_ASSERT(LinkedList_index(list, 0) == (void*)2);
+    CU_ASSERT(LinkedList_index(list, -1) == (void*)1);
+    CU_ASSERT(LinkedList_index(list, 5) == (void*)1);
+    // Test remove()
     LinkedList_remove(list, 3);
-    CU_ASSERT(LinkedList_index(list, 0) == (void*)1);
-    CU_ASSERT(LinkedList_index(list, -1) == (void*)6);
+    CU_ASSERT(LinkedList_index(list, 0) == (void*)2);
+    CU_ASSERT(LinkedList_index(list, -1) == (void*)1);
     CU_ASSERT(LinkedList_index(list, 5) == NULL);
+    LinkedList_del(list);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -208,6 +210,16 @@ ArrayList *_ArrayList_new(int cap)
 ArrayList *ArrayList_new()
 {
     return _ArrayList_new(8);
+}
+
+void *ArrayList_index(ArrayList *list, int index)
+{
+    int size = (int)list->size;
+    if (index < 0)
+        index += size;
+    if (index < 0 || index >= size) // check bounds
+        return NULL;
+    return list->array[index];
 }
 
 void ArrayList_growby(ArrayList *list, int additional_cap)
@@ -251,6 +263,11 @@ void *ArrayList_remove(ArrayList *list, int index)
 
 bool ArrayList_insert(ArrayList *list, int index, void *value)
 {
+    if ((list->size == 0 && index == 0) || index == -1)
+    {
+        ArrayList_add(list, value);
+        return true;
+    }
     int size = (int)list->size;
     if (index < 0)
         index += size;
@@ -305,17 +322,23 @@ void ArrayList_del(ArrayList *list)
 void ArrayList_test()
 {
     ArrayList *list = ArrayList_new();
-    ArrayList_add(list, (void*)1);
-    ArrayList_add(list, (void*)2);
-    ArrayList_add(list, (void*)3);
-    ArrayList_add(list, (void*)4);
-    ArrayList_add(list, (void*)5);
-    ArrayList_add(list, (void*)6);
-    CU_ASSERT((long)list->array[0] == 1);
-    CU_ASSERT((long)list->array[5] == 6);
+    // Test insert()
+    ArrayList_insert(list, 0, (void*)1);
+    ArrayList_insert(list, 0, (void*)2);
+    ArrayList_insert(list, 1, (void*)3);
+    ArrayList_insert(list, 1, (void*)4);
+    ArrayList_insert(list, 1, (void*)5);
+    ArrayList_insert(list, 1, (void*)6);
+    // Test index()
+    CU_ASSERT(ArrayList_index(list, 0) == (void*)2);
+    CU_ASSERT(ArrayList_index(list, -1) == (void*)1);
+    CU_ASSERT(ArrayList_index(list, 5) == (void*)1);
+    // Test remove()
     ArrayList_remove(list, 3);
-    CU_ASSERT((long)list->array[0] == 1);
-    CU_ASSERT((long)list->array[4] == 6);
+    CU_ASSERT(ArrayList_index(list, 0) == (void*)2);
+    CU_ASSERT(ArrayList_index(list, -1) == (void*)1);
+    CU_ASSERT(ArrayList_index(list, 5) == NULL);
+    ArrayList_del(list);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -323,8 +346,9 @@ void ArrayList_test()
 // An incrementally resizing dictionary map with open addressing
 ////////////////////////////////////////////////////////////////////////////////
 
-uint stringhash(char *string)
+uint stringhash(void *stringptr)
 {
+    char *string = (char*)stringptr;
     /* "Jenkin's Hash" */
     uint hash;
     uint i;
@@ -346,21 +370,28 @@ uint ptrhash(void *ptr)
     return (uint)ptr >> 2;
 }
 
+bool stringcomp(void *str1, void*str2)
+{
+    if (strcmp(str1, str2) == 0)
+        return true;
+    return false;
+}
+
+bool ptrcomp(void *ptr1, void *ptr2)
+{
+    return ptr1 == ptr2;
+}
+
 void _Dict_add(Dict *dict, void *key, void *value, bool recurrant);
 void _Dict_transfer(Dict *dict);
-Dict *_Dict_new(int tablesize, bool stringkeys);
+Dict *_Dict_new(int tablesize, uint (*hash)(void*), bool (*comp)(void*,void*));
 Bucket *_Dict_get(Dict *dict, void *key);
 
 // add an item to tableB only
 void _Dict_add(Dict *dict, void *key, void *value, bool recurrant)
 {
     assert(key != NULL);
-    uint hash;
-    if (dict->stringkeys)
-        hash = stringhash(key);
-    else
-        hash = ptrhash(key);
-    hash %= dict->capB;
+    uint hash = dict->hash(key) % dict->capB;
     Bucket *bucket = &dict->tableB[hash];
     while (bucket->key != NULL)
     {
@@ -413,10 +444,11 @@ void _Dict_transfer(Dict *dict)
     dict->sizeB = 0;
 }
 
-Dict *_Dict_new(int tablesize, bool stringkeys)
+Dict *_Dict_new(int tablesize, uint (*hash)(void*), bool (*comp)(void*,void*))
 {
     Dict *dict = malloc(sizeof(Dict));
-    dict->stringkeys = stringkeys;
+    dict->hash = hash;
+    dict->comp = comp;
     dict->indexA = 0;
     dict->sizeA = 0;
     dict->sizeB = 0;
@@ -427,33 +459,23 @@ Dict *_Dict_new(int tablesize, bool stringkeys)
     return dict;
 }
 
-Dict *Dict_new(bool stringkeys)
+Dict *Dict_new(uint (*hash)(void*), bool (*comp)(void*,void*))
 {
-    return _Dict_new(8, stringkeys);
+    return _Dict_new(8, hash, comp);
 }
 
 Bucket *_Dict_get(Dict *dict, void *key)
 {
     assert(key != NULL);
-    uint hash, i;
-    if (dict->stringkeys)
-        hash = stringhash(key);
-    else
-        hash = ptrhash(key);
+    uint hash = dict->hash(key);
     uint hashB = hash % dict->capB;
-    i = hashB;
+    uint i = hashB;
     Bucket *bucket = &dict->tableB[i];
     do
     {
-        if (dict->stringkeys)
+        if (bucket->key != NULL)
         {
-            if (bucket->key != NULL)
-                if (strcmp(bucket->key, key) == 0)
-                    return bucket;
-        }
-        else
-        {
-            if (bucket->key == key)
+            if (dict->comp(bucket->key, key))
                 return bucket;
         }
         i++;
@@ -467,15 +489,9 @@ Bucket *_Dict_get(Dict *dict, void *key)
     bucket = &dict->tableA[i];
     do
     {
-        if (dict->stringkeys)
+        if (bucket->key != NULL)
         {
-            if (bucket->key != NULL)
-                if (strcmp(bucket->key, key) == 0)
-                    return bucket;
-        }
-        else
-        {
-            if (bucket->key == key)
+            if (dict->comp(bucket->key, key))
                 return bucket;
         }
         i++;
@@ -532,35 +548,6 @@ void *Dict_set(Dict *dict, void *key, void *value)
     return oldvalue;
 }
 
-void Dict_print(Dict *dict)
-{
-    uint i;
-    printf("tableA: size: %li cap: %li\n", dict->sizeA, dict->capA);
-    for (i = 0; i < dict->capA; i++)
-    {
-        Bucket *bucket = &dict->tableA[i];
-        if (bucket->key != NULL)
-        {
-            if (dict->stringkeys)
-                printf("%s %li\n", (char*)bucket->key, (long)bucket->value);
-            else
-                printf("%li %li\n", (long)bucket->key, (long)bucket->value);
-        }
-    }
-    printf("tableB: size: %li cap: %li\n", dict->sizeB, dict->capB);
-    for (i = 0; i < dict->capB; i++)
-    {
-        Bucket *bucket = &dict->tableB[i];
-        if (bucket->key != NULL)
-        {
-            if (dict->stringkeys)
-                printf("%s %li\n", (char*)bucket->key, (long)bucket->value);
-            else
-                printf("%li %li\n", (long)bucket->key, (long)bucket->value);
-        }
-    }
-}
-
 void Dict_del(Dict *dict)
 {
     if (dict->tableA != NULL)
@@ -571,7 +558,22 @@ void Dict_del(Dict *dict)
 
 void Dict_test()
 {
-    //Dict *dict = Dict_new(true);
+    Dict *dict = Dict_new(stringhash, stringcomp);
+    Dict_set(dict, "test0", "a");
+    Dict_set(dict, "test1", "b");
+    Dict_set(dict, "test2", "c");
+    Dict_set(dict, "test3", "d");
+    Dict_set(dict, "test0", "e");
+    CU_ASSERT(strcmp(Dict_get(dict, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(Dict_get(dict, "test1"), "b") == 0);
+    CU_ASSERT(strcmp(Dict_get(dict, "test2"), "c") == 0);
+    CU_ASSERT(strcmp(Dict_get(dict, "test3"), "d") == 0);
+    Dict_remove(dict, "test2");
+    CU_ASSERT(strcmp(Dict_get(dict, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(Dict_get(dict, "test1"), "b") == 0);
+    CU_ASSERT(Dict_get(dict, "test2") == NULL);
+    CU_ASSERT(strcmp(Dict_get(dict, "test3"), "d") == 0);
+    Dict_del(dict);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -630,6 +632,11 @@ void StrBuilder_append(StrBuilder *sb, char *s)
 void StrBuilder_appendC(StrBuilder *sb, char c)
 {
     StrBuilder_appendN(sb, &c, 1);
+}
+
+void StrBuilder_join(StrBuilder *sb1, StrBuilder *sb2)
+{
+    StrBuilder_appendN(sb1, sb2->s, sb2->size);
 }
 
 char *StrBuilder_tostring(StrBuilder *sb)
