@@ -59,6 +59,7 @@ int ArrayList_find(ArrayList *list, void *value);
 bool ArrayList_has(ArrayList *list, void *value);
 ArrayList *ArrayList_join(ArrayList *listA, ArrayList *listB);
 void ArrayList_reverse(ArrayList *list);
+void ArrayList_del(ArrayList *list);
 
 //
 // Dict

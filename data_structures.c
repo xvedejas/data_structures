@@ -296,6 +296,12 @@ void ArrayList_reverse(ArrayList *list)
         swap(list[i], list[size - 1 - i]);
 }
 
+void ArrayList_del(ArrayList *list)
+{
+    free(list->array);
+    free(list);
+}
+
 void ArrayList_test()
 {
     ArrayList *list = ArrayList_new();
