@@ -213,7 +213,7 @@ void LinkedList_test()
 // A dynamically growing/shrinking array list
 ////////////////////////////////////////////////////////////////////////////////
 
-ArrayList *_ArrayList_new(int cap)
+static ArrayList *_ArrayList_new(int cap)
 {
     ArrayList *list = malloc(sizeof(ArrayList));
     list->size = 0;
@@ -357,7 +357,7 @@ void ArrayList_test()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// HashTable
+// Map
 // An incrementally resizing hashtable map with open addressing
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -397,168 +397,171 @@ bool ptrcomp(void *ptr1, void *ptr2)
     return ptr1 == ptr2;
 }
 
-void _HashTable_add(HashTable *hashtable, void *key, void *value, bool recurrant);
-void _HashTable_transfer(HashTable *hashtable);
-HashTable *_HashTable_new(int tablesize, uint (*hash)(void*), bool (*comp)(void*,void*));
-HashTableBucket *_HashTable_get(HashTable *hashtable, void *key);
+static void _Map_add(Map *map, void *key, void *value, bool recurrant);
+static void _Map_transfer(Map *map);
+static Map *_Map_new(int log2tablesize, uint (*hash)(void*), bool (*comp)(void*,void*));
+static MapBucket *_Map_get(Map *map, void *key);
 
 // add an item to tableB only
-void _HashTable_add(HashTable *hashtable, void *key, void *value, bool recurrant)
+static void _Map_add(Map *map, void *key, void *value, bool recurrant)
 {
+    assert(map != NULL);
     assert(key != NULL);
-    uint hash = hashtable->hash(key) % hashtable->capB;
-    HashTableBucket *bucket = &hashtable->tableB[hash];
-    while (bucket->key != NULL)
+    uint hash = map->hash(key);
+    uint size_mod_B = mask(map->log2capB);
+    uint index = hash; // modulus
+    MapBucket *bucket;
+    do
     {
-        hash++;
-        hash %= hashtable->capB;
-        bucket = &hashtable->tableB[hash];
-    }
+        index &= size_mod_B;
+        bucket = &map->tableB[index];
+        index++;
+    } while (bucket->key != NULL);
     bucket->key = key;
     bucket->value = value;
-    hashtable->sizeB++;
+    map->sizeB++;
     // also move an item from tableA to tableB
     if (!recurrant)
-        _HashTable_transfer(hashtable);
+        _Map_transfer(map);
 }
 
 // transfer any item from tableA to tableB
-void _HashTable_transfer(HashTable *hashtable)
+static void _Map_transfer(Map *map)
 {
-    if (hashtable->tableA != NULL)
+    uint cap = pow2(map->log2capA);
+    if (map->tableA != NULL)
     {
-        while (hashtable->indexA < hashtable->capA)
+        while (map->indexA < cap)
         {
-            HashTableBucket *bucket = &hashtable->tableA[hashtable->indexA];
+            MapBucket *bucket = &map->tableA[map->indexA];
             if (bucket->key != NULL)
             {
-                _HashTable_add(hashtable, bucket->key, bucket->value, true);
+                _Map_add(map, bucket->key, bucket->value, true);
                 bucket->key = NULL;
-                hashtable->sizeA--;
+                map->sizeA--;
                 return;
             }
-            hashtable->indexA++;
+            map->indexA++;
         }
         // We have emptied tableA
-        assert(hashtable->sizeA == 0);
-        free(hashtable->tableA);
-        hashtable->tableA = NULL;
+        assert(map->sizeA == 0);
+        free(map->tableA);
+        map->tableA = NULL;
     }
     
     // check to see if table B has reached 75% cap.
-    uint high_load = (hashtable->capB >> 2) + (hashtable->capB >> 1);
-    if (hashtable->sizeB < high_load)
+    uint high_load = pow2(map->log2capB - 2) + pow2(map->log2capB - 1);
+    if (map->sizeB < high_load)
         return;
     
-    uint newtablesize = (hashtable->capB << 1); // grow by 2x
-    hashtable->tableA = hashtable->tableB;
-    hashtable->capA = hashtable->capB;
-    hashtable->sizeA = hashtable->sizeB;
-    hashtable->indexA = 0;
-    hashtable->tableB = calloc(newtablesize, sizeof(HashTableBucket));
-    hashtable->capB = newtablesize;
-    hashtable->sizeB = 0;
+    uint log2newtablesize = map->log2capB + 1; // grow by 2x
+    if (map->tableA != NULL)
+        free(map->tableA);
+    map->tableA = map->tableB;
+    map->log2capA = map->log2capB;
+    map->sizeA = map->sizeB;
+    map->indexA = 0;
+    map->tableB = calloc(pow2(log2newtablesize), sizeof(MapBucket));
+    map->log2capB = log2newtablesize;
+    map->sizeB = 0;
 }
 
-HashTable *_HashTable_new(int tablesize, uint (*hash)(void*), bool (*comp)(void*,void*))
+Map *Map_new_sized(int log2tablesize,
+                   uint (*hash)(void*), bool (*comp)(void*,void*))
 {
-    HashTable *hashtable = malloc(sizeof(HashTable));
-    hashtable->hash = hash;
-    hashtable->comp = comp;
-    hashtable->indexA = 0;
-    hashtable->sizeA = 0;
-    hashtable->sizeB = 0;
-    hashtable->capA = 0;
-    hashtable->capB = tablesize;
-    hashtable->tableA = NULL;
-    hashtable->tableB = calloc(tablesize, sizeof(HashTableBucket));
-    return hashtable;
+    Map *map = malloc(sizeof(Map));
+    map->hash = hash;
+    map->comp = comp;
+    map->indexA = 0;
+    map->sizeA = 0;
+    map->sizeB = 0;
+    map->log2capA = 0;
+    map->log2capB = log2tablesize;
+    map->tableA = NULL;
+    map->tableB = calloc(pow2(log2tablesize), sizeof(MapBucket));
+    return map;
 }
 
-HashTable *HashTable_new(uint (*hash)(void*), bool (*comp)(void*,void*))
+Map *Map_new(uint (*hash)(void*), bool (*comp)(void*,void*))
 {
-    return _HashTable_new(8, hash, comp);
+    return Map_new_sized(4, hash, comp);
 }
 
-HashTableBucket *_HashTable_get(HashTable *hashtable, void *key)
+static MapBucket *_Map_get(Map *map, void *key)
 {
     assert(key != NULL);
-    uint hash = hashtable->hash(key);
-    uint hashB = hash % hashtable->capB;
-    uint i = hashB;
-    HashTableBucket *bucket = &hashtable->tableB[i];
+    uint hash = map->hash(key);
+    uint size_mod_B = mask(map->log2capB);
+    uint indexB = hash & size_mod_B; // modulus
+    uint i = indexB;
+    MapBucket *bucket;
     do
     {
-        if (bucket->key != NULL)
-        {
-            if (hashtable->comp(bucket->key, key))
-                return bucket;
-        }
+        bucket = &map->tableB[i];
+        if (bucket->key != NULL && map->comp(bucket->key, key))
+            return bucket;
         i++;
-        i %= hashtable->capB;
-        bucket = &hashtable->tableB[i];
-    } while (i != hashB);
+        i &= size_mod_B;
+    } while (i != indexB);
     
-    if (hashtable->tableA == NULL)
+    // The key wasn't found in table B, now look in table A
+    
+    if (map->tableA == NULL)
         return NULL;
-    uint hashA = hash % hashtable->capA;
-    i = hashA;
-    bucket = &hashtable->tableA[i];
+        
+    uint size_mod_A = mask(map->log2capA);
+    uint indexA = hash & size_mod_A; // modulus
+    i = indexA;
     do
     {
-        if (bucket->key != NULL)
-        {
-            if (hashtable->comp(bucket->key, key))
-                return bucket;
-        }
+        bucket = &map->tableA[i];
+        if (bucket->key != NULL && map->comp(bucket->key, key))
+            return bucket;
         i++;
-        i %= hashtable->capA;
-        bucket = &hashtable->tableA[i];
-    } while (i != hashA);
+        i &= size_mod_A;
+    } while (i != indexA);
     return NULL;
 }
 
-bool HashTable_has(HashTable *hashtable, void *key)
+bool Map_has(Map *map, void *key)
 {
-    HashTableBucket *bucket = _HashTable_get(hashtable, key);
+    MapBucket *bucket = _Map_get(map, key);
     if (bucket == NULL)
         return false;
     return true;
 }
 
-void *HashTable_get(HashTable *hashtable, void *key)
+void *Map_get(Map *map, void *key)
 {
-    HashTableBucket *bucket = _HashTable_get(hashtable, key);
+    MapBucket *bucket = _Map_get(map, key);
     if (bucket == NULL)
         return NULL;
     return bucket->value;
 }
 
-void *HashTable_remove(HashTable *hashtable, void *key)
+void *Map_remove(Map *map, void *key)
 {
-    HashTableBucket *bucket = _HashTable_get(hashtable, key);
+    MapBucket *bucket = _Map_get(map, key);
     if (bucket == NULL)
         return NULL;
     void *value = bucket->value;
     bucket->key = NULL;
     // check which table the bucket was in:
-    if (bucket >= hashtable->tableA &&
-        bucket < hashtable->tableA + hashtable->capA)
-        hashtable->sizeA--;
+    if (bucket >= map->tableA && bucket < map->tableA + pow2(map->log2capA))
+        map->sizeA--;
     else
-        hashtable->sizeB--;
+        map->sizeB--;
     return value;
 }
 
-void *HashTable_set(HashTable *hashtable, void *key, void *value)
+void *Map_set(Map *map, void *key, void *value)
 {
-    HashTableBucket *bucket = _HashTable_get(hashtable, key);
+    MapBucket *bucket = _Map_get(map, key);
     void *oldvalue = NULL;
-    
     
     if (bucket == NULL)
     {
-        _HashTable_add(hashtable, key, value, false);
+        _Map_add(map, key, value, false);
     }
     else
     {
@@ -568,64 +571,71 @@ void *HashTable_set(HashTable *hashtable, void *key, void *value)
     return oldvalue;
 }
 
-void HashTable_del(HashTable *hashtable)
+void Map_del(Map *map)
 {
-    if (hashtable->tableA != NULL)
-        free(hashtable->tableA);
-    free(hashtable->tableB);
-    free(hashtable);
+    if (map->tableA != NULL)
+        free(map->tableA);
+    free(map->tableB);
+    free(map);
 }
 
-void HashTable_test()
+void Map_test()
 {
-    HashTable *hashtable = HashTable_new(stringhash, stringcomp);
-    HashTable_set(hashtable, "test0", "a");
-    HashTable_set(hashtable, "test1", "b");
-    HashTable_set(hashtable, "test2", "c");
-    HashTable_set(hashtable, "test3", "d");
-    HashTable_set(hashtable, "test0", "e");
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test0"), "e") == 0);
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test1"), "b") == 0);
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test2"), "c") == 0);
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test3"), "d") == 0);
-    HashTable_remove(hashtable, "test2");
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test0"), "e") == 0);
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test1"), "b") == 0);
-    CU_ASSERT(HashTable_get(hashtable, "test2") == NULL);
-    CU_ASSERT(strcmp(HashTable_get(hashtable, "test3"), "d") == 0);
-    HashTable_del(hashtable);
+    Map *map = Map_new(stringhash, stringcomp);
+    Map_set(map, "test0", "a");
+    Map_set(map, "test1", "b");
+    Map_set(map, "test2", "c");
+    Map_set(map, "test3", "d");
+    Map_set(map, "test0", "e");
+    CU_ASSERT(strcmp(Map_get(map, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(Map_get(map, "test1"), "b") == 0);
+    CU_ASSERT(strcmp(Map_get(map, "test2"), "c") == 0);
+    CU_ASSERT(strcmp(Map_get(map, "test3"), "d") == 0);
+    Map_remove(map, "test2");
+    CU_ASSERT(strcmp(Map_get(map, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(Map_get(map, "test1"), "b") == 0);
+    CU_ASSERT(Map_get(map, "test2") == NULL);
+    CU_ASSERT(strcmp(Map_get(map, "test3"), "d") == 0);
+    Map_del(map);
+}
+
+void Map_profile()
+{
+    /// todo
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Map
+// ChainedMap
 // An incrementally resizing hashtable map with chaining
 ////////////////////////////////////////////////////////////////////////////////
 
-void _Map_add(Map *map, void *key, void *value, bool recurrant);
+static void _ChainedMap_add(ChainedMap *map, void *key, void *value, bool recurrant);
 
-Map *_Map_new(int tablesize, uint (*hash)(void*), bool (*comp)(void*,void*))
+ChainedMap *ChainedMap_new_sized(int log2tablesize,
+                                 uint (*hash)(void*), bool (*comp)(void*,void*))
 {
-    Map *map = malloc(sizeof(Map));
+    ChainedMap *map = malloc(sizeof(ChainedMap));
     map->hash = hash;
     map->comp = comp;
     map->indexA = 0;
     map->sizeA = 0;
     map->sizeB = 0;
-    map->capA = 0;
-    map->capB = tablesize;
+    map->log2capA = 0;
+    map->log2capB = log2tablesize;
     map->tableA = NULL;
-    map->tableB = calloc(tablesize, sizeof(MapBucket));
+    map->tableB = calloc(pow2(log2tablesize), sizeof(ChainedMapBucket));
     return map;
 }
 
-Map *Map_new(uint (*hash)(void*), bool (*comp)(void*,void*))
+ChainedMap *ChainedMap_new(uint (*hash)(void*), bool (*comp)(void*,void*))
 {
-    return _Map_new(8, hash, comp);
+    return ChainedMap_new_sized(4, hash, comp);
 }
 
-MapBucket *_Map_get(Map *map, MapBucket *maptable, uint hash, void *key)
+static ChainedMapBucket *_ChainedMap_get(ChainedMap *map, ChainedMapBucket *maptable,
+                                  uint index, void *key)
 {
-    MapBucket *bucket = &maptable[hash];
+    ChainedMapBucket *bucket = &maptable[index];
     if (bucket->key != NULL)
     {
         do
@@ -639,82 +649,92 @@ MapBucket *_Map_get(Map *map, MapBucket *maptable, uint hash, void *key)
 }
 
 // Move one entry from tableA to tableB
-void _Map_transfer(Map *map)
+static void _ChainedMap_transfer(ChainedMap *map)
 {
-    uint i = map->indexA;
-    MapBucket *bucket, *next;
-    for (i = 0; i < map->capA; i++)
+    assert(map != NULL);
+    if (map->tableA != NULL)
     {
-        bucket = &map->tableA[i];
-        if (bucket->key != NULL)
+        uint i = map->indexA;
+        uint cap = pow2(map->log2capA);
+        ChainedMapBucket *bucket, *next;
+        for (i = 0; i < cap; i++)
         {
-            next = bucket->next;
-            void *key = bucket->key;
-            void *value = bucket->value;
-            bucket->key = next->key;
-            bucket->value = next->value;
-            bucket->next = next;
-            _Map_add(map, key, value, true);
-            map->indexA = i;
-            return;
+            bucket = &map->tableA[i];
+            if (bucket->key != NULL)
+            {
+                next = bucket->next->next;
+                void *key = bucket->key;
+                void *value = bucket->value;
+                bucket->key = next->key;
+                bucket->value = next->value;
+                free(bucket->next);
+                bucket->next = next;
+                _ChainedMap_add(map, key, value, true);
+                map->indexA = i;
+                return;
+            }
         }
     }
     
     // check to see if table B has reached 75% cap.
-    uint high_load = (map->capB >> 2) + (map->capB >> 1);
+    uint high_load = pow2(map->log2capB + 2) + pow2(map->log2capB + 1);
     if (map->sizeB < high_load)
         return;
     
-    uint newtablesize = (map->capB << 1); // grow by 2x
+    uint log2newtablesize = map->log2capB + 1; // grow by 2x
+    if (map->tableA != NULL)
+        free(map->tableA);
     map->tableA = map->tableB;
-    map->capA = map->capB;
+    map->log2capA = map->log2capB;
     map->sizeA = map->sizeB;
     map->indexA = 0;
-    map->tableB = calloc(newtablesize, sizeof(MapBucket));
-    map->capB = newtablesize;
+    map->tableB = calloc(pow2(log2newtablesize), sizeof(ChainedMapBucket));
+    map->log2capB = log2newtablesize;
     map->sizeB = 0;
 }
 
-void *Map_get(Map *map, void *key)
+void *ChainedMap_get(ChainedMap *map, void *key)
 {
     assert(key != NULL);
     uint hash = map->hash(key);
-    uint hashB = hash % map->capB;
-    MapBucket *bucket = _Map_get(map, map->tableB, hashB, key);
+    uint size_mod_B = mask(map->log2capB);
+    uint indexB = hash & size_mod_B;
+    ChainedMapBucket *bucket = _ChainedMap_get(map, map->tableB, indexB, key);
     if (bucket != NULL)
         return bucket->value;
     if (map->tableA == NULL)
         return NULL;
-    uint hashA = hash % map->capA;
-    bucket = _Map_get(map, map->tableA, hashA, key);
+    uint size_mod_A = mask(map->log2capA);
+    uint indexA = hash & size_mod_A;
+    bucket = _ChainedMap_get(map, map->tableA, indexA, key);
     if (bucket == NULL)
         return NULL;
     return bucket->value;
 }
 
-bool Map_has(Map *map, void *key)
+bool ChainedMap_has(ChainedMap *map, void *key)
 {
     assert(key != NULL);
     uint hash = map->hash(key);
-    uint hashB = hash % map->capB;
-    MapBucket *bucket = _Map_get(map, map->tableB, hashB, key);
+    uint indexB = hash & mask(map->log2capB);
+    ChainedMapBucket *bucket = _ChainedMap_get(map, map->tableB, indexB, key);
     if (bucket != NULL)
         return true;
-    uint hashA = hash % map->capA;
-    bucket = _Map_get(map, map->tableA, hashA, key);
+    uint indexA = hash & mask(map->log2capA);
+    bucket = _ChainedMap_get(map, map->tableA, indexA, key);
     return bucket != NULL;
 }
 
-void *Map_remove(Map *map, void *key)
+void *ChainedMap_remove(ChainedMap *map, void *key)
 {
     uint hash = map->hash(key);
-    uint hashB = hash % map->capB;
-    MapBucket *bucket = &map->tableB[hashB];
+    uint indexB = hash & mask(map->log2capB);
+    ChainedMapBucket *bucket = &map->tableB[indexB];
     void *value = NULL;
     if (map->comp(bucket->key, key))
     {
         value = bucket->value;
-        MapBucket *next = bucket->next;
+        ChainedMapBucket *next = bucket->next;
         if (bucket->next != NULL)
         {
             bucket->key = next->key;
@@ -727,7 +747,7 @@ void *Map_remove(Map *map, void *key)
         map->sizeB--;
         return value;
     }
-    MapBucket *prev = bucket;
+    ChainedMapBucket *prev = bucket;
     for (bucket = bucket->next; bucket != NULL; bucket = bucket->next)
     {
         if (map->comp(bucket->key, key))
@@ -740,12 +760,12 @@ void *Map_remove(Map *map, void *key)
         }
         prev = bucket;
     }
-    uint hashA = hash % map->capA;
-    bucket = &map->tableA[hashA];
+    uint indexA = hash & mask(map->log2capA);
+    bucket = &map->tableA[indexA];
     if (map->comp(bucket->key, key))
     {
         value = bucket->value;
-        MapBucket *next = bucket->next;
+        ChainedMapBucket *next = bucket->next;
         if (bucket->next != NULL)
         {
             bucket->key = next->key;
@@ -775,11 +795,11 @@ void *Map_remove(Map *map, void *key)
 }
 
 // Add to table B, requires that the key is not yet in map
-void _Map_add(Map *map, void *key, void *value, bool recurrant)
+static void _ChainedMap_add(ChainedMap *map, void *key, void *value, bool recurrant)
 {
-    uint hash = map->hash(key) % map->capB;
-    MapBucket *bucket = &map->tableB[hash];
-    MapBucket *new_bucket = malloc(sizeof(MapBucket));
+    uint index = map->hash(key) & mask(map->log2capB);
+    ChainedMapBucket *bucket = &map->tableB[index];
+    ChainedMapBucket *new_bucket = malloc(sizeof(ChainedMapBucket));
     new_bucket->key = bucket->key;
     new_bucket->value = bucket->value;
     new_bucket->next = bucket->next;
@@ -788,16 +808,16 @@ void _Map_add(Map *map, void *key, void *value, bool recurrant)
     bucket->next = new_bucket;
     map->sizeB++;
     if (!recurrant)
-        _Map_transfer(map); // also move an item from tableA to tableB
+        _ChainedMap_transfer(map); // also move an item from tableA to tableB
 }
 
-void *Map_set(Map *map, void *key, void *value)
+void *ChainedMap_set(ChainedMap *map, void *key, void *value)
 {
     assert(map != NULL);
     assert(key != NULL);
     uint hash = map->hash(key);
-    uint hashB = hash % map->capB;
-    MapBucket *bucketB = _Map_get(map, map->tableB, hashB, key);
+    uint indexB = hash & mask(map->log2capB);
+    ChainedMapBucket *bucketB = _ChainedMap_get(map, map->tableB, indexB, key);
     void *old_value;
     if (bucketB != NULL)
     {
@@ -807,8 +827,9 @@ void *Map_set(Map *map, void *key, void *value)
     }
     if (map->tableA != NULL)
     {
-        uint hashA = hash % map->capA;
-        MapBucket *bucketA = _Map_get(map, map->tableA, hashA, key);
+        uint indexA = hash & mask(map->log2capA);
+        ChainedMapBucket *bucketA =
+            _ChainedMap_get(map, map->tableA, indexA, key);
         if (bucketA != NULL)
         {
             old_value = bucketB->value;
@@ -817,26 +838,30 @@ void *Map_set(Map *map, void *key, void *value)
         }
     }
     // We didn't find an existing such key, so add it
-    _Map_add(map, key, value, false);
+    _ChainedMap_add(map, key, value, false);
     return NULL;
 }
 
-void Map_del(Map *map)
+void ChainedMap_del(ChainedMap *map)
 {
     uint i;
-    MapBucket *bucket, *next;
-    for (i = 0; i < map->capA; i++)
+    ChainedMapBucket *bucket, *next;
+    if (map->tableA != NULL)
     {
-        bucket = &map->tableA[i];
-        next = bucket->next;
-        while (next != NULL)
+        for (i = 0; i < pow2(map->log2capA); i++)
         {
-            free(next);
-            next = next->next;
-            bucket->next = next;
+            bucket = &map->tableA[i];
+            next = bucket->next;
+            while (next != NULL)
+            {
+                free(next);
+                next = next->next;
+                bucket->next = next;
+            }
         }
+        free(map->tableA);
     }
-    for (i = 0; i < map->capB; i++)
+    for (i = 0; i < pow2(map->log2capB); i++)
     {
         bucket = &map->tableB[i];
         next = bucket->next;
@@ -847,30 +872,60 @@ void Map_del(Map *map)
             bucket->next = next;
         }
     }
-    free(map->tableA);
     free(map->tableB);
     free(map);
 }
 
-void Map_test()
+void ChainedMap_test()
 {
-    Map *map = Map_new(stringhash, stringcomp);
-    Map_set(map, "test0", "a");
-    Map_set(map, "test1", "b");
-    Map_set(map, "test2", "c");
-    Map_set(map, "test3", "d");
-    Map_set(map, "test0", "e");
-    CU_ASSERT(strcmp(Map_get(map, "test0"), "e") == 0);
-    CU_ASSERT(strcmp(Map_get(map, "test1"), "b") == 0);
-    CU_ASSERT(strcmp(Map_get(map, "test2"), "c") == 0);
-    CU_ASSERT(strcmp(Map_get(map, "test3"), "d") == 0);
-    Map_remove(map, "test2");
-    CU_ASSERT(strcmp(Map_get(map, "test0"), "e") == 0);
-    CU_ASSERT(strcmp(Map_get(map, "test1"), "b") == 0);
-    CU_ASSERT(Map_get(map, "test2") == NULL);
-    CU_ASSERT(strcmp(Map_get(map, "test3"), "d") == 0);
-    Map_del(map);
+    ChainedMap *map = ChainedMap_new(stringhash, stringcomp);
+    ChainedMap_set(map, "test0", "a");
+    ChainedMap_set(map, "test1", "b");
+    ChainedMap_set(map, "test2", "c");
+    ChainedMap_set(map, "test3", "d");
+    ChainedMap_set(map, "test0", "e");
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test1"), "b") == 0);
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test2"), "c") == 0);
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test3"), "d") == 0);
+    ChainedMap_remove(map, "test2");
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test0"), "e") == 0);
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test1"), "b") == 0);
+    CU_ASSERT(ChainedMap_get(map, "test2") == NULL);
+    CU_ASSERT(strcmp(ChainedMap_get(map, "test3"), "d") == 0);
+    ChainedMap_del(map);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// MultiMap
+// Like Map, but each key can have 1 or more values (instead of just 1).
+// An open addressing scheme is used.
+////////////////////////////////////////////////////////////////////////////////
+
+MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+MultiMap *MultiMap_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
+bool MultiMap_has(MultiMap *map, void *key);
+MultiMapList *MultiMap_get(MultiMap *map, void *key);
+void MultiMap_removeAll(MultiMap *map, void *key);
+MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
+MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
+void MultiMap_del(MultiMap *map);
+
+////////////////////////////////////////////////////////////////////////////////
+// Set
+// A set type implemented by hash table
+////////////////////////////////////////////////////////////////////////////////
+
+Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool Set_has(Set *set, void *value);
+void *Set_get(Set *set, void *value);
+void *Set_remove(Set *set, void *value);
+void *Set_add(Set *set, void *value);
+void *Set_intersection(Set *set1, Set *set2);
+void *Set_union(Set *set1, Set *set2);
+void *Set_difference(Set *set1, Set *set2);
+void *Set_symdifference(Set *set1, Set *set2);
+void Set_del(Set *set);
 
 ////////////////////////////////////////////////////////////////////////////////
 // StrBuilder
@@ -959,37 +1014,6 @@ void StrBuilder_test()
     CU_ASSERT(strcmp(StrBuilder_tostring(sb), "test1test2test3") == 0);
 }
 
-
-////////////////////////////////////////////////////////////////////////////////
-// MultiMap
-// Like Map, but each key can have 1 or more values (instead of just 1).
-// An open addressing scheme is used.
-////////////////////////////////////////////////////////////////////////////////
-
-MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-bool MultiMap_has(MultiMap *map, void *key);
-MultiMapList *MultiMap_get(MultiMap *map, void *key);
-void MultiMap_removeAll(MultiMap *map, void *key);
-MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
-MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
-void MultiMap_del(MultiMap *map);
-
-////////////////////////////////////////////////////////////////////////////////
-// Set
-// A set type implemented by hash table
-////////////////////////////////////////////////////////////////////////////////
-
-Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-bool Set_has(Set *set, void *value);
-void *Set_get(Set *set, void *value);
-void *Set_remove(Set *set, void *value);
-void *Set_add(Set *set, void *value);
-void *Set_intersection(Set *set1, Set *set2);
-void *Set_union(Set *set1, Set *set2);
-void *Set_difference(Set *set1, Set *set2);
-void *Set_symdifference(Set *set1, Set *set2);
-void Set_del(Set *set);
-
 ////////////////////////////////////////////////////////////////////////////////
 // BitArray2D
 // A static 2D array of bits with an additional position parameter for use in
@@ -1011,9 +1035,9 @@ typedef enum
 
 // Copy or otherwise perform a bitwise operation on a contiguous run of bits.
 // The destination should have at least nbits_to_nbytes(nbits) bytes allocated.
-void bitop(uchar *dest, uint dest_bit_offset,
-           uchar *src, uint src_bit_offset,
-           uint nbits, Bitop operation)
+static inline void bitop(uchar *dest, uint dest_bit_offset,
+                         uchar *src, uint src_bit_offset,
+                         uint nbits, Bitop operation)
 {
     assert(dest != NULL);
     assert(src != NULL);
@@ -1045,7 +1069,7 @@ void bitop(uchar *dest, uint dest_bit_offset,
         src_byte = (src[i] << src_bit_offset) |
                    (src[i + 1] >> (8 - src_bit_offset));
         // Now select only the extra bits needed
-        src_byte &= 0b11111111 - ((1 << (8 - nbits_extra)) - 1);
+        src_byte &= 0b11111111 - mask(8 - nbits_extra);
         
         uint nbits_extra_src_left = min(nbits_extra, 8 - src_bit_offset);
         uint nbits_extra_src_right = 0;
@@ -1057,14 +1081,14 @@ void bitop(uchar *dest, uint dest_bit_offset,
             nbits_extra_dest_right = nbits_extra - nbits_extra_dest_left;
         
         // We now also need new masks with the correct number of zeros
-        uchar src_mask_left = 0b11111111 - (((1 << nbits_extra_src_left) - 1) <<
-                                      (8 - nbits_extra_src_left - src_bit_offset));
-        uchar src_mask_right = 0b11111111 - (((1 << nbits_extra_src_right) - 1) <<
-                                       (8 - nbits_extra_src_right));
-        uchar dest_mask_left = 0b11111111 - (((1 << nbits_extra_dest_left) - 1) <<
-                                      (8 - nbits_extra_dest_left - dest_bit_offset));
-        uchar dest_mask_right = 0b11111111 - (((1 << nbits_extra_dest_right) - 1) <<
-                                       (8 - nbits_extra_dest_right));
+        uchar src_mask_left = ~(mask(nbits_extra_src_left) <<
+                                (8 - nbits_extra_src_left - src_bit_offset));
+        uchar src_mask_right = ~(mask(nbits_extra_src_right) <<
+                                 (8 - nbits_extra_src_right));
+        uchar dest_mask_left = ~(mask(nbits_extra_dest_left) <<
+                                 (8 - nbits_extra_dest_left - dest_bit_offset));
+        uchar dest_mask_right = ~(mask(nbits_extra_dest_right) <<
+                                  (8 - nbits_extra_dest_right));
         
         switch (operation)
         {
@@ -1096,10 +1120,10 @@ void bitop(uchar *dest, uint dest_bit_offset,
     
     
     // Masks to clear the exact 8 bits over a byte boundary
-    uchar dest_mask_right = (1 << (8 - dest_bit_offset)) - 1;
-    uchar dest_mask_left = 0b11111111 - dest_mask_right;
-    uchar src_mask_right = (1 << (8 - src_bit_offset)) - 1;
-    uchar src_mask_left = 0b11111111 - src_mask_right;
+    uchar dest_mask_right = mask(8 - dest_bit_offset);
+    uchar dest_mask_left = ~dest_mask_right;
+    uchar src_mask_right = mask(8 - src_bit_offset);
+    uchar src_mask_left = ~src_mask_right;
     
     // We need to make sure if (dest < src) to move in descending rather than
     // ascending order to prevent overwrite in the case of overlap when copying.
@@ -1165,7 +1189,7 @@ void bitop(uchar *dest, uint dest_bit_offset,
 // Allocates the BitArray struct but not the array representation itself.
 // Note: x and y are the shifted "positions" of the array relative to the
 // origin. They affect how bitwise operations work.
-BitArray *_BitArray_new(uint x, uint y, uint width, uint height)
+static BitArray *_BitArray_new(uint x, uint y, uint width, uint height)
 {
     BitArray *array = malloc(sizeof(BitArray));
     array->width = width;
@@ -1239,7 +1263,7 @@ bool BitArray_getbit(BitArray *array, uint i, uint j)
     uint bytewidth = bits2bytes(array->width);
     uint byte = j * bytewidth + (i >> 3);
     uint bit = 8 - (i & 0b111);
-    return array->bits[byte] & (1 << bit);
+    return array->bits[byte] & pow2(bit);
 }
 
 void BitArray_setbit(BitArray *array, uint i, uint j, bool on)
@@ -1248,7 +1272,7 @@ void BitArray_setbit(BitArray *array, uint i, uint j, bool on)
     assert(i < array->width);
     assert(j < array->height);
     uint byte = j * bits2bytes(array->width) + (i >> 3);
-    uint bit = 1 << (7 - (i & 0b111));
+    uint bit = pow2(7 - (i & 0b111));
     if (on)
         array->bits[byte] |= bit;
     else
@@ -1261,7 +1285,7 @@ void BitArray_setcolumn(BitArray *array, uint x, bool on)
     assert(x < array->width);
     uint j;
     uint xbyte = x >> 3;
-    uint xbit = 1 << (x & 0b111);
+    uint xbit = pow2(x & 0b111);
     uint bytewidth = bits2bytes(array->width);
     if (on)
     {
@@ -1481,7 +1505,7 @@ bool BitArray_compare(BitArray *array1, BitArray *array2)
     uchar *bits2 = array2->bits;
     uint remainder = array1->width % 8;
     uint bytewidth = bits2bytes(array1->width);
-    uchar remainder_mask = 0b11111111 - ((1 << (8 - remainder)) - 1);
+    uchar remainder_mask = ~mask(8 - remainder);
     uint i, j;
     for (j = 0; j < array1->height; j++)
     {
@@ -1512,7 +1536,7 @@ void BitArray_print(BitArray *array)
         int i = first_n_bits - 1;
         while (true)
         {
-            if (byte & (1 << i))
+            if (byte & pow2(i))
                 *b++ = '1';
             else
                 *b++ = '.';
@@ -1641,8 +1665,8 @@ int main()
     /* add the tests to the suite */
     if ((NULL == CU_add_test(pSuite, "test of LinkedList", LinkedList_test)) ||
         (NULL == CU_add_test(pSuite, "test of ArrayList", ArrayList_test)) ||
-        (NULL == CU_add_test(pSuite, "test of HashTable", HashTable_test)) ||
         (NULL == CU_add_test(pSuite, "test of Map", Map_test)) ||
+        (NULL == CU_add_test(pSuite, "test of ChainedMap", ChainedMap_test)) ||
         (NULL == CU_add_test(pSuite, "test of StrBuilder", StrBuilder_test)) ||
         (NULL == CU_add_test(pSuite, "test of BitArray", BitArray_test)))
     {

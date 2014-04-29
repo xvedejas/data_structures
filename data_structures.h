@@ -10,6 +10,8 @@ typedef enum
 
 #define min(x,y) (((x)<(y))?(x):(y))
 #define max(x,y) (((x)>(y))?(x):(y))
+#define pow2(n) (uint)(1<<(n))
+#define mask(n) (uint)((1<<(n))-1)
 
 ////////////////////////////////////////////////////////////////////////////////
 // LinkedList
@@ -82,7 +84,7 @@ typedef struct
     bool (*comp)(void*, void*); // algorithm used to compare keys
     uint indexA;       // keeps track of how far we are in moving items from tableA
     uint sizeA, sizeB; // number of buckets occupied
-    uint capA, capB;   // capacity: actual size of tables
+    uint log2capA, log2capB; // capacity: actual size of tables as a power of 2
     MapBucket *tableA, *tableB; // "old" table and "new" table
 } Map;
 
@@ -92,6 +94,7 @@ bool stringcomp(void *str1, void*str2);
 bool ptrcomp(void *ptr1, void *ptr2);
 
 Map *Map_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+Map *Map_new_sized(int log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
 bool Map_has(Map *map, void *key);
 void *Map_get(Map *map, void *key);
 void *Map_remove(Map *map, void *key);
@@ -109,8 +112,8 @@ void Map_del(Map *map);
 typedef struct chainedMapBucket
 {
     void *key, *value;
-    struct mapBucket *next;
-} ChanedMapBucket;
+    struct chainedMapBucket *next;
+} ChainedMapBucket;
 
 typedef struct
 {
@@ -118,37 +121,17 @@ typedef struct
     bool (*comp)(void*, void*); // algorithm used to compare keys
     uint indexA;       // keeps track of how far we are in moving items from tableA
     uint sizeA, sizeB; // number of buckets occupied
-    uint capA, capB;   // capacity: actual size of tables
-    ChanedMapBucket *tableA, *tableB; // "old" table and "new" table
-} ChanedMap;
+    uint log2capA, log2capB; // capacity: actual size of tables as a power of 2
+    ChainedMapBucket *tableA, *tableB; // "old" table and "new" table
+} ChainedMap;
 
-ChanedMap *ChanedMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-bool ChanedMap_has(ChanedMap *map, void *key);
-void *ChanedMap_get(ChanedMap *map, void *key);
-void *ChanedMap_remove(ChanedMap *map, void *key);
-void *ChanedMap_set(ChanedMap *map, void *key, void *value);
-void ChanedMap_del(ChanedMap *map);
-
-////////////////////////////////////////////////////////////////////////////////
-// StrBuilder
-// Useful for building lengths of string
-////////////////////////////////////////////////////////////////////////////////
-
-typedef struct
-{
-    uint size, cap;
-    char *s;
-} StrBuilder;
-
-StrBuilder *StrBuilder_new(char *initial);
-void StrBuilder_del(StrBuilder *sb);
-void StrBuilder_appendN(StrBuilder *sb, char *s, uint len);
-void StrBuilder_append(StrBuilder *sb, char *s);
-void StrBuilder_appendC(StrBuilder *sb, char c);
-// join() will change the first strbuilder and not affect the other
-void StrBuilder_join(StrBuilder *sb1, StrBuilder *sb2);
-// tostring() frees the StrBuilder and returns a string
-char *StrBuilder_tostring(StrBuilder *sb);
+ChainedMap *ChainedMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+ChainedMap *ChainedMap_new_sized(int log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
+bool ChainedMap_has(ChainedMap *map, void *key);
+void *ChainedMap_get(ChainedMap *map, void *key);
+void *ChainedMap_remove(ChainedMap *map, void *key);
+void *ChainedMap_set(ChainedMap *map, void *key, void *value);
+void ChainedMap_del(ChainedMap *map);
 
 ////////////////////////////////////////////////////////////////////////////////
 // MultiMap
@@ -174,11 +157,12 @@ typedef struct
     bool (*comp)(void*, void*); // algorithm used to compare keys
     uint indexA;       // keeps track of how far we are in moving items from tableA
     uint sizeA, sizeB; // number of buckets occupied
-    uint capA, capB;   // capacity: actual size of tables
+    uint log2capA, log2capB; // capacity: actual size of tables as a power of 2
     MultiMapList *tableA, *tableB; // "old" table and "new" table
 } MultiMap;
 
 MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+MultiMap *MultiMap_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
 bool MultiMap_has(MultiMap *map, void *key);
 MultiMapList *MultiMap_get(MultiMap *map, void *key);
 void MultiMap_removeAll(MultiMap *map, void *key);
@@ -203,11 +187,12 @@ typedef struct
     bool (*comp)(void*, void*); // algorithm used to compare keys
     uint indexA;       // keeps track of how far we are in moving items from tableA
     uint sizeA, sizeB; // number of buckets occupied
-    uint capA, capB;   // capacity: actual size of tables
+    uint log2capA, log2capB; // capacity: actual size of tables as a power of 2
     SetBucket *tableA, *tableB; // "old" table and "new" table
 } Set;
 
 Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+Set *Set_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
 bool Set_has(Set *set, void *value);
 void *Set_get(Set *set, void *value);
 void *Set_remove(Set *set, void *value);
@@ -217,6 +202,27 @@ void *Set_union(Set *set1, Set *set2);
 void *Set_difference(Set *set1, Set *set2);
 void *Set_symdifference(Set *set1, Set *set2);
 void Set_del(Set *set);
+
+////////////////////////////////////////////////////////////////////////////////
+// StrBuilder
+// Useful for building lengths of string
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct
+{
+    uint size, cap;
+    char *s;
+} StrBuilder;
+
+StrBuilder *StrBuilder_new(char *initial);
+void StrBuilder_del(StrBuilder *sb);
+void StrBuilder_appendN(StrBuilder *sb, char *s, uint len);
+void StrBuilder_append(StrBuilder *sb, char *s);
+void StrBuilder_appendC(StrBuilder *sb, char c);
+// join() will change the first strbuilder and not affect the other
+void StrBuilder_join(StrBuilder *sb1, StrBuilder *sb2);
+// tostring() frees the StrBuilder and returns a string
+char *StrBuilder_tostring(StrBuilder *sb);
 
 ////////////////////////////////////////////////////////////////////////////////
 // BitArray2D
