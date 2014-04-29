@@ -959,15 +959,36 @@ void StrBuilder_test()
     CU_ASSERT(strcmp(StrBuilder_tostring(sb), "test1test2test3") == 0);
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 // MultiMap
-// todo
+// Like Map, but each key can have 1 or more values (instead of just 1).
+// An open addressing scheme is used.
 ////////////////////////////////////////////////////////////////////////////////
+
+MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool MultiMap_has(MultiMap *map, void *key);
+MultiMapList *MultiMap_get(MultiMap *map, void *key);
+void MultiMap_removeAll(MultiMap *map, void *key);
+MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
+MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
+void MultiMap_del(MultiMap *map);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Set
-// todo
+// A set type implemented by hash table
 ////////////////////////////////////////////////////////////////////////////////
+
+Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool Set_has(Set *set, void *value);
+void *Set_get(Set *set, void *value);
+void *Set_remove(Set *set, void *value);
+void *Set_add(Set *set, void *value);
+void *Set_intersection(Set *set1, Set *set2);
+void *Set_union(Set *set1, Set *set2);
+void *Set_difference(Set *set1, Set *set2);
+void *Set_symdifference(Set *set1, Set *set2);
+void Set_del(Set *set);
 
 ////////////////////////////////////////////////////////////////////////////////
 // BitArray2D
@@ -1455,10 +1476,7 @@ void BitArray_shrinkright(BitArray *array, uint n)
 bool BitArray_compare(BitArray *array1, BitArray *array2)
 {
     if (array1->width != array2->width || array1->height != array2->height)
-    {
-        printf("A\n");
         return false;
-    }
     uchar *bits1 = array1->bits;
     uchar *bits2 = array2->bits;
     uint remainder = array1->width % 8;

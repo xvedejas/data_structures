@@ -67,49 +67,13 @@ void ArrayList_reverse(ArrayList *list);
 void ArrayList_del(ArrayList *list);
 
 ////////////////////////////////////////////////////////////////////////////////
-// HashTable
+// Map
 // An incrementally resizing hashtable map with open addressing
 ////////////////////////////////////////////////////////////////////////////////
 
 typedef struct
 {
     void *key, *value;
-} HashTableBucket;
-
-typedef struct
-{
-    uint (*hash)(void*); // algorithm used to hash keys
-    bool (*comp)(void*, void*); // algorithm used to compare keys
-    uint indexA;       // keeps track of how far we are in moving items from tableA
-    uint sizeA, sizeB; // number of buckets occupied
-    uint capA, capB;   // capacity: actual size of tables
-    HashTableBucket *tableA, *tableB; // "old" table and "new" table
-} HashTable;
-
-uint stringhash(void *stringptr);
-uint ptrhash(void *ptr);
-bool stringcomp(void *str1, void*str2);
-bool ptrcomp(void *ptr1, void *ptr2);
-
-HashTable *HashTable_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-bool HashTable_has(HashTable *hashtable, void *key);
-void *HashTable_get(HashTable *hashtable, void *key);
-void *HashTable_remove(HashTable *hashtable, void *key);
-void *HashTable_set(HashTable *hashtable, void *key, void *value);
-void HashTable_del(HashTable *hashtable);
-
-////////////////////////////////////////////////////////////////////////////////
-// Map
-// An incrementally resizing hashtable map with chaining
-////////////////////////////////////////////////////////////////////////////////
-
-// Use this instead of HashTable when lookup is likely to result in finding no
-// such key.
-
-typedef struct mapBucket
-{
-    void *key, *value;
-    struct mapBucket *next;
 } MapBucket;
 
 typedef struct
@@ -122,12 +86,48 @@ typedef struct
     MapBucket *tableA, *tableB; // "old" table and "new" table
 } Map;
 
+uint stringhash(void *stringptr);
+uint ptrhash(void *ptr);
+bool stringcomp(void *str1, void*str2);
+bool ptrcomp(void *ptr1, void *ptr2);
+
 Map *Map_new(uint (*hash)(void*), bool (*comp)(void*,void*));
 bool Map_has(Map *map, void *key);
 void *Map_get(Map *map, void *key);
 void *Map_remove(Map *map, void *key);
 void *Map_set(Map *map, void *key, void *value);
 void Map_del(Map *map);
+
+////////////////////////////////////////////////////////////////////////////////
+// ChainedMap
+// An incrementally resizing hashtable map with chaining
+////////////////////////////////////////////////////////////////////////////////
+
+// Use this instead of Map when lookup is likely to result in finding no
+// such key.
+
+typedef struct chainedMapBucket
+{
+    void *key, *value;
+    struct mapBucket *next;
+} ChanedMapBucket;
+
+typedef struct
+{
+    uint (*hash)(void*); // algorithm used to hash keys
+    bool (*comp)(void*, void*); // algorithm used to compare keys
+    uint indexA;       // keeps track of how far we are in moving items from tableA
+    uint sizeA, sizeB; // number of buckets occupied
+    uint capA, capB;   // capacity: actual size of tables
+    ChanedMapBucket *tableA, *tableB; // "old" table and "new" table
+} ChanedMap;
+
+ChanedMap *ChanedMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool ChanedMap_has(ChanedMap *map, void *key);
+void *ChanedMap_get(ChanedMap *map, void *key);
+void *ChanedMap_remove(ChanedMap *map, void *key);
+void *ChanedMap_set(ChanedMap *map, void *key, void *value);
+void ChanedMap_del(ChanedMap *map);
 
 ////////////////////////////////////////////////////////////////////////////////
 // StrBuilder
@@ -149,6 +149,74 @@ void StrBuilder_appendC(StrBuilder *sb, char c);
 void StrBuilder_join(StrBuilder *sb1, StrBuilder *sb2);
 // tostring() frees the StrBuilder and returns a string
 char *StrBuilder_tostring(StrBuilder *sb);
+
+////////////////////////////////////////////////////////////////////////////////
+// MultiMap
+// Like Map, but each key can have 1 or more values (instead of just 1).
+// Uses an open addressing scheme with linear probing.
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct multiMapList
+{
+    void *value;
+    struct multiMapList *next;
+} MultiMapList;
+
+typedef struct
+{
+    void *key;
+    struct multiMapList *next;
+} MultiMapBucket;
+
+typedef struct
+{
+    uint (*hash)(void*); // algorithm used to hash keys
+    bool (*comp)(void*, void*); // algorithm used to compare keys
+    uint indexA;       // keeps track of how far we are in moving items from tableA
+    uint sizeA, sizeB; // number of buckets occupied
+    uint capA, capB;   // capacity: actual size of tables
+    MultiMapList *tableA, *tableB; // "old" table and "new" table
+} MultiMap;
+
+MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool MultiMap_has(MultiMap *map, void *key);
+MultiMapList *MultiMap_get(MultiMap *map, void *key);
+void MultiMap_removeAll(MultiMap *map, void *key);
+MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
+MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
+void MultiMap_del(MultiMap *map);
+
+////////////////////////////////////////////////////////////////////////////////
+// Set
+// A set type implemented by hash table
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct setBucket
+{
+    void *value;
+    struct setBucket *next;
+} SetBucket;
+
+typedef struct
+{
+    uint (*hash)(void*); // algorithm used to hash keys
+    bool (*comp)(void*, void*); // algorithm used to compare keys
+    uint indexA;       // keeps track of how far we are in moving items from tableA
+    uint sizeA, sizeB; // number of buckets occupied
+    uint capA, capB;   // capacity: actual size of tables
+    SetBucket *tableA, *tableB; // "old" table and "new" table
+} Set;
+
+Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
+bool Set_has(Set *set, void *value);
+void *Set_get(Set *set, void *value);
+void *Set_remove(Set *set, void *value);
+void *Set_add(Set *set, void *value);
+void *Set_intersection(Set *set1, Set *set2);
+void *Set_union(Set *set1, Set *set2);
+void *Set_difference(Set *set1, Set *set2);
+void *Set_symdifference(Set *set1, Set *set2);
+void Set_del(Set *set);
 
 ////////////////////////////////////////////////////////////////////////////////
 // BitArray2D
