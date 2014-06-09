@@ -5,6 +5,12 @@
 #include "CUnit/Basic.h"
 #include "data_structures.h"
 
+#define swap(_a, _b) {__typeof__(_a) _c = _a; _a = _b; _b = _c;}
+#define min(x,y) (((x)<(y))?(x):(y))
+#define max(x,y) (((x)>(y))?(x):(y))
+#define pow2(n) (uint)(1<<(n))
+#define mask(n) (uint)((1<<(n))-1)
+
 ////////////////////////////////////////////////////////////////////////////////
 // LinkedList
 // A circular doubly-linked list
@@ -143,10 +149,51 @@ void *LinkedList_remove(LinkedList *list, int index)
 {
     LinkedListElement *elem = _LinkedList_remove(list, index);
     if (elem == NULL)
-        return NULL;
+        return false;
     void *value = elem->value;
     free(elem);
     return value;
+}
+
+bool LinkedList_remove_first(LinkedList *list, void *value)
+{
+    LinkedListElement *first = list->first;
+    LinkedListElement *elem = first;
+    LinkedListElement *next = elem->next;
+    do
+    {
+        if (elem->value == value)
+        {
+            elem->prev->next = elem->next;
+            elem->next->prev = elem->prev;
+            free(elem);
+            return true;
+        }
+        elem = next;
+        next = elem->next;
+    } while (elem != first);
+    return false;
+}
+
+bool LinkedList_remove_all(LinkedList *list, void *value)
+{
+    LinkedListElement *first = list->first;
+    LinkedListElement *elem = first;
+    LinkedListElement *next = elem->next;
+    bool found = false;
+    do
+    {
+        if (elem->value == value)
+        {
+            found = true;
+            elem->prev->next = elem->next;
+            elem->next->prev = elem->prev;
+            free(elem);
+        }
+        elem = next;
+        next = next->next;
+    } while (elem != first);
+    return found;
 }
 
 void *LinkedList_pop(LinkedList *list)
@@ -176,12 +223,10 @@ void LinkedList_del(LinkedList *list)
     assert(list->first != NULL);
     LinkedListElement *first = list->first;
     LinkedListElement *elem = first;
-    LinkedListElement *next = elem->next;
     do
     {
         free(elem);
-        elem = next;
-        next = elem->next;
+        elem = elem->next;
     } while (elem != first);
     free(list);
 }
@@ -487,6 +532,30 @@ Map *Map_new(uint (*hash)(void*), bool (*comp)(void*,void*))
     return Map_new_sized(4, hash, comp);
 }
 
+MapIterator Map_iter(Map *map)
+{
+    MapIterator iter;
+    iter.map = map;
+    iter.tableA = false;
+    iter.index = -1;
+    return iter;
+}
+
+static MapBucket *_Map_iter_next(MapIterator *iter)
+{
+    Map *map = iter->map;
+    MapBucket *table = (iter->tableA)? map->tableA : map->tableB;
+    if (iter.index < 0)
+    {
+        
+    }
+    MapBucket *bucket = &table[iter.index];
+    /// how do we ensure that after the first call, the iterator is still
+    /// pointing at the first element (which may be at index 0)? Maybe use -1
+    /// for the "uninitialized" step? Maybe rethink how iterators should work?
+    
+}
+
 static MapBucket *_Map_get(Map *map, void *key)
 {
     assert(key != NULL);
@@ -695,17 +764,16 @@ static void _ChainedMap_transfer(ChainedMap *map)
 
 void *ChainedMap_get(ChainedMap *map, void *key)
 {
+    assert(map != NULL);
     assert(key != NULL);
     uint hash = map->hash(key);
-    uint size_mod_B = mask(map->log2capB);
-    uint indexB = hash & size_mod_B;
+    uint indexB = hash & mask(map->log2capB);
     ChainedMapBucket *bucket = _ChainedMap_get(map, map->tableB, indexB, key);
     if (bucket != NULL)
         return bucket->value;
     if (map->tableA == NULL)
         return NULL;
-    uint size_mod_A = mask(map->log2capA);
-    uint indexA = hash & size_mod_A;
+    uint indexA = hash & mask(map->log2capA);
     bucket = _ChainedMap_get(map, map->tableA, indexA, key);
     if (bucket == NULL)
         return NULL;
@@ -902,30 +970,497 @@ void ChainedMap_test()
 // An open addressing scheme is used.
 ////////////////////////////////////////////////////////////////////////////////
 
-MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-MultiMap *MultiMap_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
-bool MultiMap_has(MultiMap *map, void *key);
-MultiMapList *MultiMap_get(MultiMap *map, void *key);
-void MultiMap_removeAll(MultiMap *map, void *key);
-MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
-MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
-void MultiMap_del(MultiMap *map);
+MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*))
+{
+    return Map_new(hash, comp);
+}
+
+MultiMap *MultiMap_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*))
+{
+    return Map_new_sized(log2size, hash, comp);
+}
+
+bool MultiMap_has(MultiMap *map, void *key)
+{
+    return Map_has(map, key);
+}
+
+bool MultiMap_has_pair(MultiMap *map, void *key, void *value)
+{
+    LinkedList *list = Map_get(map, key);
+    LinkedListElement *first = list->first;
+    LinkedListElement *elem = first;
+    do
+    {
+        if (elem->value == value)
+            return true;
+        elem = elem->next;
+    } while (elem != first);
+    return false;
+}
+
+LinkedList *MultiMap_get(MultiMap *map, void *key)
+{
+    return Map_get(map, key);
+}
+
+bool MultiMap_remove_key(MultiMap *map, void *key)
+{
+    LinkedList *list = Map_remove(map, key);
+    if (list == NULL)
+        return false;
+    LinkedList_del(list);
+    return true;
+}
+
+LinkedList *MultiMap_remove(MultiMap *map, void *key, void *value)
+{
+    LinkedList *list = Map_get(map, key);
+    if (list == NULL)
+        return NULL;
+    LinkedList_remove_all(list, value);
+    return list;
+}
+
+LinkedList *MultiMap_add(MultiMap *map, void *key, void *value)
+{
+    LinkedList *list = Map_get(map, key);
+    if (list == NULL)
+    {
+        list = LinkedList_new();
+        Map_set(map, key, list);
+    }
+    LinkedList_add(list, value);
+    return list;
+}
+
+void MultiMap_del(MultiMap *map)
+{
+    uint i;
+    for (i = 0; i < pow2(map->log2capA); i++)
+    {
+        LinkedList *list = map->tableA[i].value;
+        if (list != NULL)
+            LinkedList_del(list);
+    }
+    for (i = 0; i < pow2(map->log2capB); i++)
+    {
+        LinkedList *list = map->tableB[i].value;
+        if (list != NULL)
+            LinkedList_del(list);
+    }
+    Map_del(map);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Set
 // A set type implemented by hash table
 ////////////////////////////////////////////////////////////////////////////////
 
-Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
-bool Set_has(Set *set, void *value);
-void *Set_get(Set *set, void *value);
-void *Set_remove(Set *set, void *value);
-void *Set_add(Set *set, void *value);
-void *Set_intersection(Set *set1, Set *set2);
-void *Set_union(Set *set1, Set *set2);
-void *Set_difference(Set *set1, Set *set2);
-void *Set_symdifference(Set *set1, Set *set2);
-void Set_del(Set *set);
+static void _Set_add(Set *set, void *value, bool recurrant);
+
+Set *Set_new_sized(uint log2tablesize,
+                   uint (*hash)(void*),
+                   bool (*comp)(void*,void*))
+{
+    Set *set = malloc(sizeof(Set));
+    set->hash = hash;
+    set->comp = comp;
+    set->indexA = 0;
+    set->sizeA = 0;
+    set->sizeB = 0;
+    set->log2capA = 0;
+    set->log2capB = log2tablesize;
+    set->tableA = NULL;
+    set->tableB = calloc(pow2(log2tablesize), sizeof(SetBucket));
+    return set;
+}
+
+Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*))
+{
+    return Set_new_sized(4, hash, comp);
+}
+
+SetIterator Set_iter(Set *set)
+{
+    SetIterator iter;
+    iter.set = set;
+    iter.tableA = false;
+    iter.index = 0;
+    return iter;
+}
+
+static SetBucket *_Set_iter_current(SetIterator *iter)
+{
+    SetBucket *table;
+    if (iter->tableA)
+        table = tableA;
+    else
+        table = tableB;
+    SetBucket *bucket;
+    bucket = &table[iter->bucket_index];
+    assert(bucket->value != NULL);
+    uint i = iter->chain_index;
+    while (i --> 0)
+    {
+        bucket = bucket->next;
+        assert(bucket != NULL);
+    }
+    return bucket;
+}
+
+void *Set_iter_current(SetIterator *iter)
+{
+    return _Set_iter_current(iter)->value;
+}
+
+// The iterator should be describing the position of the bucket returned once
+// this function returns
+static SetBucket *_Set_iter_next(SetIterator *iter)
+{
+    SetBucket *table;
+    uint tablesize;
+    if (iter->tableA)
+    {
+        table = tableA;
+        tablesize = pow2(set->log2capA);
+    }
+    else
+    {
+        table = tableB;
+        tablesize = pow2(set->log2capB);
+    }
+    iter->chain_index++;
+    SetBucket *bucket;
+    while (true)
+    {
+        bucket = &table[iter->bucket_index];
+        if (bucket->value != NULL)
+            break;
+        iter->chain_index = 0;
+        iter->bucket_index++;
+        // If we reach the end of this table...
+        if (iter->bucket_index >= tablesize)
+        {
+            iter->bucket_index = 0;
+            if (iter->tableA)
+            {
+                // we're done iterating. Reset the iterator and return NULL
+                iter->tableA = false;
+                return NULL;
+            }
+            else
+            {
+                // go on to table A
+                iter->tableA = true;
+            }
+        }
+    }
+    uint i = iter->chain_index;
+    while (i --> 0)
+    {
+        bucket = bucket->next;
+        if (bucket == NULL)
+            return NULL;
+    }
+    return bucket;
+}
+
+void *Set_iter_next(SetIterator *iter)
+{
+    return _Set_iter_next(iter);
+}
+
+static SetBucket *_Set_get_chain(Set *set, SetBucket *settable,
+                                 uint index, void *value)
+{
+    SetBucket *bucket = &settable[index];
+    if (bucket->value != NULL)
+    {
+        do
+        {
+            if (set->comp(bucket->value, value))
+                return bucket;
+            bucket = bucket->next;
+        } while (bucket != NULL);
+    }
+    return NULL;
+}
+
+// Move one entry from tableA to tableB
+static void _Set_transfer(Set *set)
+{
+    assert(set != NULL);
+    if (set->tableA != NULL)
+    {
+        uint i = set->indexA;
+        uint cap = pow2(set->log2capA);
+        SetBucket *bucket, *next;
+        for (i = 0; i < cap; i++)
+        {
+            bucket = &set->tableA[i];
+            if (bucket->value != NULL)
+            {
+                next = bucket->next->next;
+                void *value = bucket->value;
+                bucket->value = next->value;
+                free(bucket->next);
+                bucket->next = next;
+                _Set_add(set, value, true);
+                set->indexA = i;
+                return;
+            }
+        }
+    }
+    
+    // check to see if table B has reached 75% cap.
+    uint high_load = pow2(set->log2capB + 2) + pow2(set->log2capB + 1);
+    if (set->sizeB < high_load)
+        return;
+    
+    uint log2newtablesize = set->log2capB + 1; // grow by 2x
+    if (set->tableA != NULL)
+        free(set->tableA);
+    set->tableA = set->tableB;
+    set->log2capA = set->log2capB;
+    set->sizeA = set->sizeB;
+    set->indexA = 0;
+    set->tableB = calloc(pow2(log2newtablesize), sizeof(SetBucket));
+    set->log2capB = log2newtablesize;
+    set->sizeB = 0;
+}
+
+bool Set_has(Set *set, void *value)
+{
+    assert(set != NULL);
+    assert(value != NULL);
+    uint hash = set->hash(value);
+    uint indexB = hash & mask(set->log2capB);
+    SetBucket *bucket = _Set_get_chain(set, set->tableB, indexB, value);
+    while (bucket != NULL)
+    {
+        if (set->comp(bucket->value, value))
+            return true;
+        bucket = bucket->next;
+    }
+    uint indexA = hash & mask(set->log2capA);
+    bucket = _Set_get_chain(set, set->tableA, indexA, value);
+    while (bucket != NULL)
+    {
+        if (set->comp(bucket->value, value))
+            return true;
+        bucket = bucket->next;
+    }
+    return false;
+}
+
+static bool _Set_remove(Set *set, SetBucket *table, void *value, uint index)
+{
+    SetBucket *bucket = &table[index];
+    if (set->comp(bucket->value, value))
+    {
+        SetBucket *next = bucket->next;
+        if (bucket->next != NULL)
+        {
+            bucket->value = next->value;
+            bucket->next = next->next;
+            free(next);
+        }
+        else
+            bucket->value = NULL;
+        
+        return true;
+    }
+    SetBucket *prev = bucket;
+    for (bucket = bucket->next; bucket != NULL; bucket = bucket->next)
+    {
+        if (set->comp(bucket->value, value))
+        {
+            prev->next = bucket->next;
+            value = bucket->value;
+            free(bucket);
+            return true;
+        }
+        prev = bucket;
+    }
+    return false;
+}
+
+void Set_remove(Set *set, void *value)
+{
+    assert(set != NULL);
+    assert(value != NULL);
+    uint hash = set->hash(value);
+    uint indexB = hash & mask(set->log2capB);
+    bool removed = _Set_remove(set, set->tableB, value, indexB);
+    if (removed)
+    {
+        set->sizeB--;
+        return;
+    }
+    uint indexA = hash & mask(set->log2capA);
+    bool removed = _Set_remove(set, set->tableA, value, indexA);
+    if (removed)
+    {
+        set->sizeA--;
+        return;
+    }
+}
+
+// Add to table B, requires that the value is not yet in table B
+static void _Set_add(Set *set, void *value, bool recurrant)
+{
+    uint index = set->hash(value) & mask(set->log2capB);
+    SetBucket *bucket = &set->tableB[index];
+    SetBucket *new_bucket = malloc(sizeof(SetBucket));
+    new_bucket->value = bucket->value;
+    new_bucket->next = bucket->next;
+    bucket->value = value;
+    bucket->next = new_bucket;
+    set->sizeB++;
+    if (!recurrant)
+        _Set_transfer(set); // also move an item from tableA to tableB
+}
+
+void Set_del(Set *set)
+{
+    uint i;
+    SetBucket *bucket, *next;
+    if (set->tableA != NULL)
+    {
+        for (i = 0; i < pow2(set->log2capA); i++)
+        {
+            bucket = &set->tableA[i];
+            next = bucket->next;
+            while (next != NULL)
+            {
+                free(next);
+                next = next->next;
+                bucket->next = next;
+            }
+        }
+        free(set->tableA);
+    }
+    for (i = 0; i < pow2(set->log2capB); i++)
+    {
+        bucket = &set->tableB[i];
+        next = bucket->next;
+        while (next != NULL)
+        {
+            free(next);
+            next = next->next;
+            bucket->next = next;
+        }
+    }
+    free(set->tableB);
+    free(set);
+}
+
+/// This could actually be pretty bad, iterating through the set while removing
+/// items... Maybe have an iterator method to remove the current item gracefully?
+void Set_intersect_inplace(Set *set1, Set *set2)
+{
+    SetIterator iter = Set_iter(set1);
+    SetBucket *bucket;
+    while ((bucket = _Set_iter_next(&iter)) != NULL)
+    {
+        if (!Set_has(set2, bucket->value))
+        {
+            SetBucket *table = (iter.tableA)? set1->tableA : set1->tableB;
+            _Set_remove(set1, table, bucket->value, iter.bucket_index);
+        }
+    }
+}
+
+void Set_union_inplace(Set *set1, Set *set2)
+{
+    SetIterator iter = Set_iter(set2);
+    SetBucket *bucket = _Set_iter_next(&iter);
+    for ( ; bucket != NULL; bucket = _Set_iter_next(&iter))
+        _Set_add(set1, bucket->value, false);
+}
+
+void Set_difference_inplace(Set *set1, Set *set2)
+{
+    SetIterator iter = Set_iter(set1);
+    SetBucket *bucket = _Set_iter_next(&iter);
+    for ( ; bucket != NULL; bucket = _Set_iter_next(&iter))
+    {
+        if (Set_has(set2, bucket->value))
+        {
+            SetBucket *table = (iter.tableA)? set1->tableA : set1->tableB;
+            _Set_remove(set1, table, bucket->value, iter.bucket_index);
+        }
+    }
+}
+
+void Set_symdifference_inplace(Set *set1, Set *set2)
+{
+    Set_difference_inplace(set1, set2);
+    Set_union_inplace(set1, Set_difference(set2, set1));
+}
+
+Set *Set_intersection(Set *set1, Set *set2)
+{
+    Set *set = Set_copy(set1);
+    Set_intersect_inplace(set, set2);
+    return set;
+}
+
+Set *Set_union(Set *set1, Set *set2)
+{
+    Set *set = Set_copy(set1);
+    Set_union_inplace(set, set2);
+    return set;
+}
+
+Set *Set_difference(Set *set1, Set *set2)
+{
+    Set *set = Set_copy(set1);
+    Set_difference_inplace(set, set2);
+    return set;
+}
+
+Set *Set_symdifference(Set *set1, Set *set2)
+{
+    Set *set = Set_copy(set1);
+    Set_symdifference_inplace(set, set2);
+    return set;
+}
+
+Set *Set_copy(Set *set)
+{
+    Set *new = malloc(sizeof(Set));
+    new->hash = set->hash;
+    new->comp = set->comp;
+    new->indexA = set->indexA;
+    new->sizeA = set->sizeA;
+    new->sizeB = set->sizeB;
+    new->log2capA = set->log2capA;
+    new->log2capB = set->log2capB;
+    uint tableAsize = sizeof(SetBucket) * pow2(new->log2capA);
+    uint tableBsize = sizeof(SetBucket) * pow2(new->log2capB)
+    new->tableA = malloc(tableAsize);
+    new->tableB = malloc(tableBsize);
+    memcpy(new->tableA, set->tableA, tableAsize);
+    memcpy(new->tableB, set->tableB, tableBsize);
+    /// now we need to iterate through the tables and copy the chains
+    todo
+}
+
+void Set_test()
+{
+    Set *set = Set_new();
+    uint i;
+    // Add all integers from 1 to 50
+    for (i = 1; i <= 50; i++)
+        Set_add(set, (void*)i);
+    // Add all integers from 25 to 75
+    for (i = 25; i <= 75; i++)
+        Set_add(set, (void*)i);
+    // Make sure there are exactly 75 integers in the set
+    CU_ASSERT(set->sizeA + set->sizeB == 75);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // StrBuilder
@@ -1069,7 +1604,7 @@ static inline void bitop(uchar *dest, uint dest_bit_offset,
         src_byte = (src[i] << src_bit_offset) |
                    (src[i + 1] >> (8 - src_bit_offset));
         // Now select only the extra bits needed
-        src_byte &= 0b11111111 - mask(8 - nbits_extra);
+        src_byte &= ~mask(8 - nbits_extra);
         
         uint nbits_extra_src_left = min(nbits_extra, 8 - src_bit_offset);
         uint nbits_extra_src_right = 0;
@@ -1668,7 +2203,9 @@ int main()
         (NULL == CU_add_test(pSuite, "test of Map", Map_test)) ||
         (NULL == CU_add_test(pSuite, "test of ChainedMap", ChainedMap_test)) ||
         (NULL == CU_add_test(pSuite, "test of StrBuilder", StrBuilder_test)) ||
-        (NULL == CU_add_test(pSuite, "test of BitArray", BitArray_test)))
+        (NULL == CU_add_test(pSuite, "test of BitArray", BitArray_test)) ||
+        (NULL == CU_add_test(pSuite, "test of MultiMap", MultiMap_test)) ||
+        (NULL == CU_add_test(pSuite, "test of Set", Set_test)))
     {
         CU_cleanup_registry();
         return CU_get_error();

@@ -1,4 +1,5 @@
-#define swap(_a, _b) {__typeof__(_a) _c = _a; _a = _b; _b = _c;}
+#ifndef __data_structures__
+#define __data_structures__
 
 typedef unsigned long uint;
 typedef unsigned char uchar;
@@ -7,11 +8,6 @@ typedef enum
 {
     false, true
 } bool;
-
-#define min(x,y) (((x)<(y))?(x):(y))
-#define max(x,y) (((x)>(y))?(x):(y))
-#define pow2(n) (uint)(1<<(n))
-#define mask(n) (uint)((1<<(n))-1)
 
 ////////////////////////////////////////////////////////////////////////////////
 // LinkedList
@@ -35,6 +31,8 @@ void LinkedList_reverse(LinkedList *list);
 void *LinkedList_index(LinkedList *list, int index);
 bool LinkedList_insert(LinkedList *list, int index, void *value);
 void *LinkedList_remove(LinkedList *list, int index);
+bool LinkedList_remove_first(LinkedList *list, void *value);
+bool LinkedList_remove_all(LinkedList *list, void *value);
 bool LinkedList_add(LinkedList *list, void *value); // like "push"
 bool LinkedList_enqueue(LinkedList *list, void *value);
 void *LinkedList_pop(LinkedList *list); // like "dequeue"
@@ -88,6 +86,13 @@ typedef struct
     MapBucket *tableA, *tableB; // "old" table and "new" table
 } Map;
 
+typedef struct
+{
+    Map *map;
+    bool tableA; // begins false
+    int index;
+} MapIterator;
+
 uint stringhash(void *stringptr);
 uint ptrhash(void *ptr);
 bool stringcomp(void *str1, void*str2);
@@ -100,6 +105,8 @@ void *Map_get(Map *map, void *key);
 void *Map_remove(Map *map, void *key);
 void *Map_set(Map *map, void *key, void *value);
 void Map_del(Map *map);
+
+MapIterator Map_iter(Map *map);
 
 ////////////////////////////////////////////////////////////////////////////////
 // ChainedMap
@@ -136,38 +143,20 @@ void ChainedMap_del(ChainedMap *map);
 ////////////////////////////////////////////////////////////////////////////////
 // MultiMap
 // Like Map, but each key can have 1 or more values (instead of just 1).
-// Uses an open addressing scheme with linear probing.
+// Uses an open addressing scheme with linear probing. This is essentially just
+// the Map data type with different semantics.
 ////////////////////////////////////////////////////////////////////////////////
 
-typedef struct multiMapList
-{
-    void *value;
-    struct multiMapList *next;
-} MultiMapList;
-
-typedef struct
-{
-    void *key;
-    struct multiMapList *next;
-} MultiMapBucket;
-
-typedef struct
-{
-    uint (*hash)(void*); // algorithm used to hash keys
-    bool (*comp)(void*, void*); // algorithm used to compare keys
-    uint indexA;       // keeps track of how far we are in moving items from tableA
-    uint sizeA, sizeB; // number of buckets occupied
-    uint log2capA, log2capB; // capacity: actual size of tables as a power of 2
-    MultiMapList *tableA, *tableB; // "old" table and "new" table
-} MultiMap;
+typedef Map MultiMap;
 
 MultiMap *MultiMap_new(uint (*hash)(void*), bool (*comp)(void*,void*));
 MultiMap *MultiMap_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
 bool MultiMap_has(MultiMap *map, void *key);
-MultiMapList *MultiMap_get(MultiMap *map, void *key);
-void MultiMap_removeAll(MultiMap *map, void *key);
-MultiMapList *MultiMap_remove(MultiMap *map, void *key, void *value);
-MultiMapList *MultiMap_add(MultiMap *map, void *key, void *value);
+bool MultiMap_has_pair(MultiMap *map, void *key, void *value);
+LinkedList *MultiMap_get(MultiMap *map, void *key);
+bool MultiMap_remove_key(MultiMap *map, void *key);
+LinkedList *MultiMap_remove(MultiMap *map, void *key, void *value);
+LinkedList *MultiMap_add(MultiMap *map, void *key, void *value);
 void MultiMap_del(MultiMap *map);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -191,16 +180,29 @@ typedef struct
     SetBucket *tableA, *tableB; // "old" table and "new" table
 } Set;
 
+typedef struct
+{
+    Set *set;
+    bool tableA; // start with tableB (false) and work to tableA (true)
+    uint bucket_index;
+    uint chain_index;
+} SetIterator;
+
 Set *Set_new(uint (*hash)(void*), bool (*comp)(void*,void*));
 Set *Set_new_sized(uint log2size, uint (*hash)(void*), bool (*comp)(void*,void*));
+SetIterator Set_iter(Set *set);
+void *Set_iter_next(SetIterator iter);
 bool Set_has(Set *set, void *value);
-void *Set_get(Set *set, void *value);
-void *Set_remove(Set *set, void *value);
-void *Set_add(Set *set, void *value);
-void *Set_intersection(Set *set1, Set *set2);
-void *Set_union(Set *set1, Set *set2);
-void *Set_difference(Set *set1, Set *set2);
-void *Set_symdifference(Set *set1, Set *set2);
+void Set_remove(Set *set, void *value);
+void Set_add(Set *set, void *value);
+void Set_intersect_inplace(Set *set1, Set *set2);
+void Set_union_inplace(Set *set1, Set *set2);
+void Set_difference_inplace(Set *set1, Set *set2);
+void Set_symdifference_inplace(Set *set1, Set *set2);
+Set *Set_intersection(Set *set1, Set *set2);
+Set *Set_union(Set *set1, Set *set2);
+Set *Set_difference(Set *set1, Set *set2);
+Set *Set_symdifference(Set *set1, Set *set2);
 void Set_del(Set *set);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -268,3 +270,5 @@ void BitArray_shrinkleft(BitArray *array, uint n);
 // Remove last n columns
 void BitArray_shrinkright(BitArray *array, uint n);
 void BitArray_print();
+
+#endif // __data_structures__
